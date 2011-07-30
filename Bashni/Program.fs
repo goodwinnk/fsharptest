@@ -22,6 +22,9 @@ module List =
 type Item (color: int, number: int) =
     member this.Color with get () = color
     member this.Number with get () = number
+
+    override this.GetHashCode() = color * stick_length + number
+
     override this.ToString() =
         sprintf "i=%d:%d" color number
 
@@ -32,7 +35,7 @@ type Item (color: int, number: int) =
 type Stick = class
     val move_items_sublist : Item list
     val items : Item list
-    val stringRepr : string
+    val hashCode : int
 
     ///<summary> 
     /// Construct new stick with predefined items on it
@@ -41,7 +44,7 @@ type Stick = class
         { 
             items = items;
             move_items_sublist = Stick.get_move_items items;
-            stringRepr = Stick.get_str_representation items;
+            hashCode = Stick.get_hash_code items;
         }
 
     ///<summary> 
@@ -51,7 +54,7 @@ type Stick = class
         {
             items = List.skipn baseStick.Items baseStick.MoveItemsSublist.Length;
             move_items_sublist = Stick.get_move_items (List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
-            stringRepr = Stick.get_str_representation (List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
+            hashCode = Stick.get_hash_code (List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
         }
 
     ///<summary> 
@@ -61,11 +64,11 @@ type Stick = class
         {
             items = List.append fromStick.MoveItemsSublist baseStick.Items;
             move_items_sublist = Stick.get_move_items (List.append fromStick.MoveItemsSublist baseStick.Items);
-            stringRepr = Stick.get_str_representation (List.append fromStick.MoveItemsSublist baseStick.Items)
+            hashCode = Stick.get_hash_code (List.append fromStick.MoveItemsSublist baseStick.Items)
         } 
 
-    static member private get_str_representation (items: Item list) =
-        sprintf "s[%s]" (String.concat ", " (List.toSeq (List.map (fun item -> item.ToString()) items)))
+    static member private get_hash_code (items: Item list) =
+        List.fold (fun code item  -> code * item.GetHashCode()) 1 items
         
     ///<summary> 
     /// Get a sublist of items which will be moved if user start his move from this stick
@@ -96,10 +99,10 @@ type Stick = class
     member this.IsFinished : bool  = this.IsEmpty || (this.items.Length = stick_length && this.MoveItemsSublist.Length = stick_length)
 
     override this.GetHashCode() = 
-        this.stringRepr.GetHashCode()
+        this.hashCode
 
     override this.ToString() =
-        this.stringRepr
+        sprintf "s[%s]" (String.concat ", " (List.toSeq (List.map (fun item -> item.ToString()) this.items)))
 
 end
 // ====================================================================================
@@ -133,8 +136,8 @@ type Field (sticks: Stick array) =
     /// Checks if given move is valid.
     ///</summary>
     member this.IsValidMove (move : Move) =
-        let toStick = this.[move.ToIndex]
-        let fromStick = this.[move.FromIndex]
+        let toStick = sticks.[move.ToIndex]
+        let fromStick = sticks.[move.FromIndex]
         move.ToIndex <> move.FromIndex && not fromStick.IsEmpty && (toStick.IsEmpty ||
             (toStick.TopItem.Color = fromStick.TopItem.Color && toStick.TopItem.Number > fromStick.TopItem.Number))
 
@@ -188,13 +191,29 @@ type Field (sticks: Stick array) =
 // ====================================================================================
 let mutable global_set = Set<int> []
 
-let rec make_must_do_moves (field : Field) history=
+let rec make_must_do_moves (field : Field) history =
     let must_do_moves = List.filter (fun move -> (field.GetMovePriority move) >= MUST_DO_STEPS_PRIORITY) field.PossibleMoves
     if (must_do_moves.IsEmpty) then
         (field, history) 
     else
         make_must_do_moves (field.ApplyMove must_do_moves.Head) (must_do_moves.Head::history)
-    
+
+let make_significant_move (significant_field : Field) local_history history = 
+    let moves = significant_field.PossibleMoves
+    if global_set.Contains (significant_field.GetKey()) then
+        []
+    else
+        if moves.IsEmpty then
+            []
+        else 
+            global_set <- global_set.Add (significant_field.GetKey())
+            let full_history = List.append local_history history
+
+            if significant_field.IsFinished then
+                [significant_field, full_history]
+            else
+                List.map (fun move -> (significant_field.ApplyMove move, move::full_history)) moves        
+            
 let make_move_in_branches (branches : (Field * Move list) list) =
     printfn "make_move_in_branches: %d" branches.Length
     List.collect 
@@ -203,47 +222,33 @@ let make_move_in_branches (branches : (Field * Move list) list) =
             | (field, history) -> 
                 match (make_must_do_moves field []) with
                 | (significant_field, local_history) -> 
-                    let moves = significant_field.PossibleMoves
-                    if global_set.Contains (significant_field.GetKey()) then
-                        []
-                    else
-                        if moves.IsEmpty then
-                            []
-                        else 
-                            global_set <- global_set.Add (significant_field.GetKey())
-                            let full_history = List.append local_history history
-
-                            if significant_field.IsFinished then
-                                [significant_field, full_history]
-                            else
-                                List.map (fun move -> (significant_field.ApplyMove move, move::full_history)) moves
+                    make_significant_move significant_field local_history history
         )
         branches
 
 let rec solve_iterate (branches : (Field * Move list) list) =
     if (branches.IsEmpty) then
-        printfn "No branches!"
+        []
     else
-        let _, history = branches.Head
-        printfn "Iteration: %d" history.Length
-        
-    let is_finished_opt = List.tryFind (fun (field : Field, history) -> field.IsFinished) branches
-    match is_finished_opt with
-    | Some ((field, history)) -> 
-        printfn "Solved!!! %d" history.Length
-        printfn "History:\n %A" 
-            (String.concat "\n" 
-                (Array.toSeq 
-                    ((Array.mapi (fun i move -> i.ToString() + " " + move.ToString()) (List.toArray (List.rev history))))
-                )
-            )
-    | None ->
-        printfn "Next iteration!"
-        solve_iterate (make_move_in_branches branches)
-        ()
+        let is_finished_opt = List.tryFind (fun (field : Field, history) -> field.IsFinished) branches
+        match is_finished_opt with
+        | Some (field, history) -> List.rev history
+        | None ->
+            printfn "Next iteration!"
+            solve_iterate (make_move_in_branches branches)
 
 let solve (field : Field) = 
-    solve_iterate [(field, [])]
+    let dision_history = solve_iterate [(field, [])]
+    match dision_history with
+        | [] -> printfn "Can't find a solution :("
+        | _ -> 
+            printfn "Solved!!! %d" dision_history.Length
+            printfn "History:\n%s" 
+                (String.concat "\n" 
+                    (Array.toSeq 
+                        ((Array.mapi (fun i move -> (i + 1).ToString() + " " + move.ToString()) (List.toArray dision_history)))
+                    )
+                )
 
 // =======================================================================================================
 
