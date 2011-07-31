@@ -127,7 +127,8 @@ type Stick = class
     override this.Equals obj =
         match obj with
         | :? Stick as stick ->
-            stick.Items.Length = this.Items.Length && stick.ToString() = this.ToString()
+            stick.Items.Length = this.Items.Length && 
+                List.forall2 (fun first second -> first = second) stick.Items this.Items
         | _ -> false
 
     override this.ToString() =
@@ -213,6 +214,7 @@ type Field (sticks: Stick array) =
             MUST_DO_STEPS_PRIORITY
         else
             0
+        // 0
 
     ///<summary> 
     /// Find a list of all possible moves for current field.
@@ -228,8 +230,31 @@ type Field (sticks: Stick array) =
         List.fold (fun listResult movesList -> List.append listResult movesList) []     
             (Array.toList (Array.mapi (fun index stick -> find_stick_moves index) sticks))
 
-    member this.GetKey() =
-        (String.concat ";" (Array.toSeq (Array.sort (Array.map (fun stick -> stick.GetHashCode().ToString()) sticks)))).GetHashCode()
+    override this.GetHashCode() =
+        // Important that fields with sticks in different order should have same hash
+        Array.fold (fun result elem -> result + elem) 0
+            (Array.mapi 
+                (fun index elem -> (index + 1) * (index + 1) * elem) 
+                (Array.sort (Array.map (fun stick -> stick.GetHashCode()) sticks)))
+
+    override this.Equals obj =
+        match obj with
+        | :? Field as field ->            
+            let sorted_sticks sticks_list =
+                List.sortBy 
+                    (fun (stick : Stick) -> 
+                        if stick.IsEmpty then
+                            0
+                        else
+                            stick.TopItem.GetHashCode()
+                    ) sticks_list
+
+            this.StickList.Length = field.StickList.Length &&
+                (List.forall2 (fun first second -> first = second) 
+                    (sorted_sticks this.StickList)
+                    (sorted_sticks field.StickList))
+            
+        | _ -> false
 
     ///<summary> 
     /// Apply given move to the field and return new field.
@@ -247,7 +272,7 @@ type Field (sticks: Stick array) =
    // Check all while found one with one row
 
 // ====================================================================================
-let mutable global_set = Set<int> []
+let mutable global_set = new System.Collections.Generic.HashSet<Field>()
 
 let rec make_must_do_moves (field : Field) history =
     let must_do_moves = List.filter (fun move -> (field.GetMovePriority move) >= MUST_DO_STEPS_PRIORITY) field.PossibleMoves
@@ -256,39 +281,43 @@ let rec make_must_do_moves (field : Field) history =
     else
         make_must_do_moves (field.ApplyMove must_do_moves.Head) (must_do_moves.Head::history)
 
-let make_significant_move (significant_field : Field) local_history history = 
-    let moves = significant_field.PossibleMoves
-    if global_set.Contains (significant_field.GetKey()) then
-        []
+let make_significant_moves (significant_field : Field) history = 
+    if significant_field.IsFinished then
+        [significant_field, history]
     else
+        let moves = significant_field.PossibleMoves
         if moves.IsEmpty then
             []
-        else 
-            global_set <- global_set.Add (significant_field.GetKey())
-            let full_history = List.append local_history history
-
-            if significant_field.IsFinished then
-                [significant_field, full_history]
-            else
-                List.map (fun move -> (significant_field.ApplyMove move, move::full_history)) moves        
+        else
+            List.map (fun move -> (significant_field.ApplyMove move, move::history)) moves        
             
 let make_move_in_branches (branches : (Field * Move list) list) =
     printfn "make_move_in_branches: %d" branches.Length
-    List.collect 
-        (fun history_pair ->
-            match (history_pair) with
-            | (field, history) -> 
-                match (make_must_do_moves field []) with
-                | (significant_field, local_history) -> 
-                    make_significant_move significant_field local_history history
-        )
-        branches
+    let after_move_branches = 
+        List.collect 
+            (fun history_pair ->
+                match (history_pair) with
+                | (field, history) -> 
+                    match (make_must_do_moves field []) with
+                    | (significant_field, local_history) -> 
+                        make_significant_moves significant_field (List.append local_history history)
+            )
+            branches
+
+    List.filter (fun (branch, history) -> global_set.Add branch) after_move_branches
 
 let rec solve_iterate (branches : (Field * Move list) list) =
     if (branches.IsEmpty) then
         []
     else
         let is_finished_opt = List.tryFind (fun (field : Field, history) -> field.IsFinished) branches
+
+        let last_moves =    
+            if not (snd branches.Head).IsEmpty then
+                List.map (fun (field, history : Move list) -> history.Head) branches
+            else
+                []
+
         match is_finished_opt with
         | Some (field, history) -> List.rev history
         | None ->
@@ -443,7 +472,7 @@ let stick11 = s    [1; 2; 2; 0; 3] [   1; 8; 0; 8; 3]
                         // LightBlue 9
 
 // 317997 - 12 Best - 77 Program - 77
-(*
+
 let stick0  = s [3; 0; 3; 4; 0; 0] [2; 7; 5; 5; 1; 9]
 let stick1  = s [4; 5; 1; 4; 3; 5] [7; 4; 9; 6; 6; 5]
 let stick2  = s [5; 6; 6; 4; 2; 6] [8; 0; 1; 3; 5; 8]
@@ -456,7 +485,7 @@ let stick8  = s [0; 4; 1; 2; 3; 5] [6; 8; 7; 2; 0; 1]
 let stick9  = s [0; 5; 6; 1; 6; 6] [0; 7; 7; 5; 4; 5]
 let stick10 = s    [4; 1; 2; 1; 2] [   0; 0; 0; 1; 1]
 let stick11 = s    [5; 6; 0; 2; 3] [   3; 3; 2; 6; 4]
-*)
+
 
 
                         // LightBrown 0
@@ -470,8 +499,8 @@ let stick11 = s    [5; 6; 0; 2; 3] [   3; 3; 2; 6; 4]
                         // Orange 8
                         // LightBlue 9
 
-// 318210 - 12 Best - ? Program - 77
-
+// 318210 - 12 Best - ? Program - 81
+(*
 let stick0  = s [4; 1; 6; 4; 5; 4] [3; 3; 0; 6; 6; 1]
 let stick1  = s [0; 6; 3; 3; 3; 6] [3; 9; 9; 6; 3; 6]
 let stick2  = s [2; 2; 3; 5; 0; 0] [3; 5; 5; 2; 9; 7]
@@ -484,6 +513,7 @@ let stick8  = s [6; 4; 4; 5; 6; 3] [2; 4; 2; 1; 1; 4]
 let stick9  = s [3; 2; 3; 4; 0; 6] [8; 7; 7; 7; 8; 8]
 let stick10 = s    [0; 5; 1; 5; 1] [   6; 3; 1; 5; 8]
 let stick11 = s    [0; 4; 1; 5; 2] [   0; 5; 9; 7; 4]
+*)
 
 // let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7 |])
 let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7; stick8; stick9; stick10; stick11 |])
