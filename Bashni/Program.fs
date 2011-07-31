@@ -1,6 +1,6 @@
-﻿let min_item_value = 0
-let max_item_value = 6
-let stick_length = 7
+﻿let MIN_ITEM_VALUE = 0
+let MAX_ITEM_VALUE = 6
+let STICK_LENGTH = MAX_ITEM_VALUE - MIN_ITEM_VALUE + 1
 let MUST_DO_STEPS_PRIORITY = 100
 
 module List =
@@ -14,6 +14,23 @@ module List =
             match list with
             | [] -> []
             | head :: tail -> skipn tail (n - 1)
+
+    ///<summary> 
+    /// Group function for the list.
+    ///</summary> 
+    let group group_key_function list =
+        let rec sub_group sub_list =
+            match sub_list with
+            | [] -> []
+            | head :: tail ->
+                let head_key = group_key_function head
+                let partition_result = List.partition (fun elem -> (group_key_function elem) = head_key) sub_list
+                (fst partition_result) :: (sub_group (snd partition_result))
+
+        match List.rev (sub_group list) with
+        | [] -> []
+        | empty :: tail -> List.rev (tail)
+        
         
 // ====================================================================================
 ///<summary> 
@@ -23,7 +40,13 @@ type Item (color: int, number: int) =
     member this.Color with get () = color
     member this.Number with get () = number
 
-    override this.GetHashCode() = color * stick_length + number
+    override this.GetHashCode() = color * STICK_LENGTH + number
+
+    override this.Equals obj =
+        match obj with
+        | :? Item as item ->
+            item.Number = this.Number && item.Color = this.Color
+        | _ -> false
 
     override this.ToString() =
         sprintf "i=%d:%d" color number
@@ -96,10 +119,16 @@ type Stick = class
     ///<summary> 
     /// Checks if current stick is already finished.
     ///</summary>
-    member this.IsFinished : bool  = this.IsEmpty || (this.items.Length = stick_length && this.MoveItemsSublist.Length = stick_length)
+    member this.IsFinished : bool  = this.IsEmpty || (this.items.Length = STICK_LENGTH && this.MoveItemsSublist.Length = STICK_LENGTH)
 
     override this.GetHashCode() = 
         this.hashCode
+
+    override this.Equals obj =
+        match obj with
+        | :? Stick as stick ->
+            stick.Items.Length = this.Items.Length && stick.ToString() = this.ToString()
+        | _ -> false
 
     override this.ToString() =
         sprintf "s[%s]" (String.concat ", " (List.toSeq (List.map (fun item -> item.ToString()) this.items)))
@@ -125,6 +154,35 @@ type Field (sticks: Stick array) =
     member this.NumberOfSticks with get() = sticks.Length
     member this.StickList with get() = Array.toList sticks    
     member this.Moves with get () = moves
+
+    member this.CheckItems = 
+        let all_items_list = List.concat (List.map (fun (stick : Stick) -> stick.Items) this.StickList)
+        let color_grouped_lists = List.group (fun (item : Item) -> item.Color) all_items_list
+
+        let check_numbers (color_item_list : Item list) = 
+            let rec check_plus_one numbers_list =
+                match numbers_list with
+                | [] -> true
+                | elem :: [] -> true
+                | first :: second :: tail -> 
+                    if (first + 1 = second) then
+                        check_plus_one (second :: tail)
+                    else 
+                        false
+
+            if (color_item_list.Length <> STICK_LENGTH) then
+                false
+            else
+                let sorted_numbers = List.sort (List.map (fun (item : Item) -> item.Number) color_item_list)
+                if sorted_numbers.Head <> MIN_ITEM_VALUE then
+                    false
+                else
+                    check_plus_one sorted_numbers
+
+        match (List.tryFind (fun color_item_list -> not (check_numbers color_item_list)) color_grouped_lists) with
+        | None -> None
+        | Some(color_item_list) -> 
+            Some (color_item_list.Head.Color)
 
     ///<summary> 
     /// Checks if there is nothing to move on the board and so the game is finished.
@@ -238,17 +296,21 @@ let rec solve_iterate (branches : (Field * Move list) list) =
             solve_iterate (make_move_in_branches branches)
 
 let solve (field : Field) = 
-    let dision_history = solve_iterate [(field, [])]
-    match dision_history with
-        | [] -> printfn "Can't find a solution :("
-        | _ -> 
-            printfn "Solved!!! %d" dision_history.Length
-            printfn "History:\n%s" 
-                (String.concat "\n" 
-                    (Array.toSeq 
-                        ((Array.mapi (fun i move -> (i + 1).ToString() + " " + move.ToString()) (List.toArray dision_history)))
+    match (field.CheckItems) with
+    | None ->
+        let dision_history = solve_iterate [(field, [])]
+        match dision_history with
+            | [] -> printfn "Can't find a solution :("
+            | _ -> 
+                printfn "Solved!!! %d" dision_history.Length
+                printfn "History:\n%s" 
+                    (String.concat "\n" 
+                        (Array.toSeq 
+                            ((Array.mapi (fun i move -> (i + 1).ToString() + " " + move.ToString()) (List.toArray dision_history)))
+                        )
                     )
-                )
+    | Some (color) ->
+        printfn "Error in color: %d" color
 
 // =======================================================================================================
 
@@ -381,6 +443,7 @@ let stick11 = s    [1; 2; 2; 0; 3] [   1; 8; 0; 8; 3]
                         // LightBlue 9
 
 // 317997 - 12 Best - 77 Program - 77
+(*
 let stick0  = s [3; 0; 3; 4; 0; 0] [2; 7; 5; 5; 1; 9]
 let stick1  = s [4; 5; 1; 4; 3; 5] [7; 4; 9; 6; 6; 5]
 let stick2  = s [5; 6; 6; 4; 2; 6] [8; 0; 1; 3; 5; 8]
@@ -393,8 +456,34 @@ let stick8  = s [0; 4; 1; 2; 3; 5] [6; 8; 7; 2; 0; 1]
 let stick9  = s [0; 5; 6; 1; 6; 6] [0; 7; 7; 5; 4; 5]
 let stick10 = s    [4; 1; 2; 1; 2] [   0; 0; 0; 1; 1]
 let stick11 = s    [5; 6; 0; 2; 3] [   3; 3; 2; 6; 4]
+*)
 
 
+                        // LightBrown 0
+                        // Brown 1
+                        // Green 2
+                        // Lilac 3
+                        // Turquoies 4
+                        // Red 5
+                        // Blue 6
+                        // LightYellow 7
+                        // Orange 8
+                        // LightBlue 9
+
+// 318210 - 12 Best - ? Program - 77
+
+let stick0  = s [4; 1; 6; 4; 5; 4] [3; 3; 0; 6; 6; 1]
+let stick1  = s [0; 6; 3; 3; 3; 6] [3; 9; 9; 6; 3; 6]
+let stick2  = s [2; 2; 3; 5; 0; 0] [3; 5; 5; 2; 9; 7]
+let stick3  = s [3; 2; 1; 2; 6; 3] [0; 8; 4; 9; 7; 1]
+let stick4  = s [6; 0; 1; 1; 0; 1] [3; 5; 5; 0; 2; 6]
+let stick5  = s [1; 2; 5; 4; 5; 0] [7; 0; 4; 0; 0; 4]
+let stick6  = s [2; 6; 4; 2; 1; 2] [1; 4; 9; 6; 2; 2]
+let stick7  = s [5; 0; 6; 3; 5; 4] [9; 1; 5; 2; 8; 8]
+let stick8  = s [6; 4; 4; 5; 6; 3] [2; 4; 2; 1; 1; 4]
+let stick9  = s [3; 2; 3; 4; 0; 6] [8; 7; 7; 7; 8; 8]
+let stick10 = s    [0; 5; 1; 5; 1] [   6; 3; 1; 5; 8]
+let stick11 = s    [0; 4; 1; 5; 2] [   0; 5; 9; 7; 4]
 
 // let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7 |])
 let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7; stick8; stick9; stick10; stick11 |])
