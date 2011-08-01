@@ -2,6 +2,7 @@
 let MAX_ITEM_VALUE = 6
 let STICK_LENGTH = MAX_ITEM_VALUE - MIN_ITEM_VALUE + 1
 let MUST_DO_STEPS_PRIORITY = 100
+let MAKE_MUST_DO_STEPS = true
 
 module List =
     ///<summary> 
@@ -204,17 +205,20 @@ type Field (sticks: Stick array) =
     /// Give the priority of the move. Moves should be tried according their priority.
     ///</summary>
     member this.GetMovePriority (move: Move) =
-        let to_stick = this.[move.ToIndex]    
-        let from_stick = this.[move.FromIndex]
+        if MAKE_MUST_DO_STEPS then
+            let to_stick = this.[move.ToIndex]    
+            let from_stick = this.[move.FromIndex]
 
-        let moved_items = List.rev (from_stick.MoveItemsSublist) // TODO: cache?
-        let move_bottom_item = moved_items.Head
+            let moved_items = List.rev (from_stick.MoveItemsSublist)
+            let move_bottom_item = moved_items.Head
 
-        if ((not to_stick.IsEmpty) && to_stick.TopItem.Number = move_bottom_item.Number + 1) (* && to_stick.TopItem.Number <= 2 *) then
-            MUST_DO_STEPS_PRIORITY
+            if ((not to_stick.IsEmpty) && to_stick.TopItem.Number = move_bottom_item.Number + 1) then
+                MUST_DO_STEPS_PRIORITY
+            else
+                0
         else
             0
-        // 0
+        
 
     ///<summary> 
     /// Find a list of all possible moves for current field.
@@ -289,22 +293,26 @@ let make_significant_moves (significant_field : Field) history =
         if moves.IsEmpty then
             []
         else
-            List.map (fun move -> (significant_field.ApplyMove move, move::history)) moves        
+            List.map (fun move -> (significant_field.ApplyMove move, move::history)) moves  
+          
+let make_moves_in_branch (field, history) = async {
+    let significant_field, local_history = make_must_do_moves field []
+    return make_significant_moves significant_field (List.append local_history history)
+}                
             
-let make_move_in_branches (branches : (Field * Move list) list) =
+let make_move_in_branches (branches : (Field * Move list) list) = 
     printfn "make_move_in_branches: %d" branches.Length
+    
     let after_move_branches = 
-        List.collect 
-            (fun history_pair ->
-                match (history_pair) with
-                | (field, history) -> 
-                    match (make_must_do_moves field []) with
-                    | (significant_field, local_history) -> 
-                        make_significant_moves significant_field (List.append local_history history)
-            )
-            branches
-
+        branches
+        |> Seq.map make_moves_in_branch
+        |> Async.Parallel
+        |> Async.RunSynchronously
+        |> Array.toList
+        |> List.concat
+        
     List.filter (fun (branch, history) -> global_set.Add branch) after_move_branches
+
 
 let rec solve_iterate (branches : (Field * Move list) list) =
     if (branches.IsEmpty) then
