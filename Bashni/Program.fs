@@ -2,7 +2,7 @@
 let MAX_ITEM_VALUE = 6
 let STICK_LENGTH = MAX_ITEM_VALUE - MIN_ITEM_VALUE + 1
 let MUST_DO_STEPS_PRIORITY = 100
-let MAKE_MUST_DO_STEPS = true
+let MAKE_MUST_DO_STEPS = false
 
 module List =
     ///<summary> 
@@ -45,8 +45,7 @@ type Item (color: int, number: int) =
 
     override this.Equals obj =
         match obj with
-        | :? Item as item ->
-            item.Number = this.Number && item.Color = this.Color
+        | :? Item as item -> item.Number = this.Number && item.Color = this.Color
         | _ -> false
 
     override this.ToString() =
@@ -56,40 +55,40 @@ type Item (color: int, number: int) =
 ///<summary> 
 /// An abstraction for the stick with items. A list of items can be empty. Stick is immutable.
 ///</summary> 
-type Stick = class
-    val move_items_sublist : Item list
-    val items : Item list
-    val hashCode : int
-
-    ///<summary> 
-    /// Construct new stick with predefined items on it
-    ///</summary> 
-    new (items : Item list) =
-        { 
-            items = items;
-            move_items_sublist = Stick.get_move_items items;
-            hashCode = Stick.get_hash_code items;
-        }
+type Stick(items: Item list) = 
+    let hashCode = Stick.get_hash_code items
 
     ///<summary> 
     /// Construct new stick from the given one with moving top elements to another one
     ///</summary> 
-    new (baseStick: Stick) = 
-        {
-            items = List.skipn baseStick.Items baseStick.MoveItemsSublist.Length;
-            move_items_sublist = Stick.get_move_items (List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
-            hashCode = Stick.get_hash_code (List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
-        }
+    new (baseStick: Stick) = Stick(List.skipn baseStick.Items baseStick.MoveItemsSublist.Length)
 
     ///<summary> 
     /// Construct new stick from the given base stick with moving elements from another stick.
     ///</summary>
-    new (baseStick: Stick, fromStick: Stick) =
-        {
-            items = List.append fromStick.MoveItemsSublist baseStick.Items;
-            move_items_sublist = Stick.get_move_items (List.append fromStick.MoveItemsSublist baseStick.Items);
-            hashCode = Stick.get_hash_code (List.append fromStick.MoveItemsSublist baseStick.Items)
-        } 
+    new (baseStick: Stick, fromStick: Stick) = Stick(List.append fromStick.MoveItemsSublist baseStick.Items)
+
+    member this.MoveItemsSublist : Item list = Stick.get_move_items items
+    member this.Items = items
+    member this.TopItem = items.Head
+    member this.IsEmpty = items.IsEmpty
+
+    ///<summary> 
+    /// Checks if current stick is already finished.
+    ///</summary>
+    member this.IsFinished : bool  = this.IsEmpty || (this.Items.Length = STICK_LENGTH && this.MoveItemsSublist.Length = STICK_LENGTH)
+
+    override this.GetHashCode() = hashCode
+
+    override this.Equals obj =
+        match obj with
+        | :? Stick as stick ->
+            stick.Items.Length = this.Items.Length && 
+                List.forall2 (fun first second -> first = second) stick.Items this.Items
+        | _ -> false
+
+    override this.ToString() =
+        sprintf "s[%s]" (String.concat ", " (List.toSeq (List.map (fun item -> item.ToString()) this.Items)))
 
     static member private get_hash_code (items: Item list) =
         List.fold (fun code item  -> code * item.GetHashCode()) 1 items
@@ -111,38 +110,13 @@ type Stick = class
                         List.rev result
            
             items_aggregate items.Tail [items.Head]
-
-    member this.Items with get () = this.items
-    member this.TopItem = this.items.Head
-    member this.IsEmpty = this.items.IsEmpty
-    member this.MoveItemsSublist : Item list = this.move_items_sublist
-
-    ///<summary> 
-    /// Checks if current stick is already finished.
-    ///</summary>
-    member this.IsFinished : bool  = this.IsEmpty || (this.items.Length = STICK_LENGTH && this.MoveItemsSublist.Length = STICK_LENGTH)
-
-    override this.GetHashCode() = 
-        this.hashCode
-
-    override this.Equals obj =
-        match obj with
-        | :? Stick as stick ->
-            stick.Items.Length = this.Items.Length && 
-                List.forall2 (fun first second -> first = second) stick.Items this.Items
-        | _ -> false
-
-    override this.ToString() =
-        sprintf "s[%s]" (String.concat ", " (List.toSeq (List.map (fun item -> item.ToString()) this.items)))
-
-end
 // ====================================================================================
 ///<summary> 
 /// An single move - contains from and to indecies.
 ///</summary> 
 type Move (fromIndex : int, toIndex: int) =
-    member this.FromIndex with get () = fromIndex
-    member this.ToIndex with get () = toIndex
+    member this.FromIndex = fromIndex
+    member this.ToIndex = toIndex
     override this.ToString() =        
         sprintf "(f: %d t: %d)" fromIndex toIndex
 
@@ -481,31 +455,18 @@ let stick11 = s    [1; 2; 2; 0; 3] [   1; 8; 0; 8; 3]
 
 // 317997 - 12 Best - 77 Program - 77
 
-let stick0  = s [3; 0; 3; 4; 0; 0] [2; 7; 5; 5; 1; 9]
-let stick1  = s [4; 5; 1; 4; 3; 5] [7; 4; 9; 6; 6; 5]
-let stick2  = s [5; 6; 6; 4; 2; 6] [8; 0; 1; 3; 5; 8]
-let stick3  = s [5; 3; 1; 3; 2; 0] [0; 8; 6; 3; 7; 8]
-let stick4  = s [0; 2; 3; 4; 5; 1] [5; 8; 9; 9; 9; 2]
-let stick5  = s [6; 4; 4; 2; 1; 2] [2; 4; 1; 4; 3; 3]
-let stick6  = s [1; 0; 2; 3; 5; 5] [8; 3; 9; 1; 6; 2]
-let stick7  = s [6; 1; 0; 6; 4; 3] [9; 4; 4; 6; 2; 7]
-let stick8  = s [0; 4; 1; 2; 3; 5] [6; 8; 7; 2; 0; 1]
-let stick9  = s [0; 5; 6; 1; 6; 6] [0; 7; 7; 5; 4; 5]
-let stick10 = s    [4; 1; 2; 1; 2] [   0; 0; 0; 1; 1]
-let stick11 = s    [5; 6; 0; 2; 3] [   3; 3; 2; 6; 4]
-
-
-
-                        // LightBrown 0
-                        // Brown 1
-                        // Green 2
-                        // Lilac 3
-                        // Turquoies 4
-                        // Red 5
-                        // Blue 6
-                        // LightYellow 7
-                        // Orange 8
-                        // LightBlue 9
+//let stick0  = s [3; 0; 3; 4; 0; 0] [2; 7; 5; 5; 1; 9]
+//let stick1  = s [4; 5; 1; 4; 3; 5] [7; 4; 9; 6; 6; 5]
+//let stick2  = s [5; 6; 6; 4; 2; 6] [8; 0; 1; 3; 5; 8]
+//let stick3  = s [5; 3; 1; 3; 2; 0] [0; 8; 6; 3; 7; 8]
+//let stick4  = s [0; 2; 3; 4; 5; 1] [5; 8; 9; 9; 9; 2]
+//let stick5  = s [6; 4; 4; 2; 1; 2] [2; 4; 1; 4; 3; 3]
+//let stick6  = s [1; 0; 2; 3; 5; 5] [8; 3; 9; 1; 6; 2]
+//let stick7  = s [6; 1; 0; 6; 4; 3] [9; 4; 4; 6; 2; 7]
+//let stick8  = s [0; 4; 1; 2; 3; 5] [6; 8; 7; 2; 0; 1]
+//let stick9  = s [0; 5; 6; 1; 6; 6] [0; 7; 7; 5; 4; 5]
+//let stick10 = s    [4; 1; 2; 1; 2] [   0; 0; 0; 1; 1]
+//let stick11 = s    [5; 6; 0; 2; 3] [   3; 3; 2; 6; 4]
 
 // 318210 - 12 Best - ? Program - 81
 (*
@@ -522,6 +483,34 @@ let stick9  = s [3; 2; 3; 4; 0; 6] [8; 7; 7; 7; 8; 8]
 let stick10 = s    [0; 5; 1; 5; 1] [   6; 3; 1; 5; 8]
 let stick11 = s    [0; 4; 1; 5; 2] [   0; 5; 9; 7; 4]
 *)
+
+
+
+                        // LightBrown 0
+                        // Brown 1
+                        // Green 2
+                        // Lilac 3
+                        // Turquoies 4
+                        // Red 5
+                        // Blue 6
+                        // LightYellow 7
+                        // Orange 8
+                        // LightBlue 9
+
+// 318868
+let stick0  = s [5; 0; 2; 3; 5; 0] [1; 9; 2; 2; 5; 6]
+let stick1  = s [0; 3; 4; 4; 0; 2] [7; 7; 7; 3; 5; 7]
+let stick2  = s [1; 1; 2; 1; 3; 4] [1; 6; 6; 3; 0; 2]
+let stick3  = s [0; 3; 0; 3; 4; 5] [3; 1; 4; 9; 9; 9]
+let stick4  = s [1; 1; 2; 4; 2; 3] [4; 7; 1; 6; 3; 3]
+let stick5  = s [4; 6; 3; 6; 0; 3] [8; 3; 8; 5; 8; 6]
+let stick6  = s [6; 6; 4; 0; 1; 2] [4; 9; 4; 2; 2; 4]
+let stick7  = s [1; 0; 6; 3; 6; 4] [8; 0; 0; 4; 7; 0]
+let stick8  = s [0; 1; 5; 6; 2; 3] [1; 0; 6; 6; 5; 5]
+let stick9  = s [5; 6; 2; 6; 4; 5] [4; 8; 8; 2; 1; 8]
+let stick10 = s    [5; 5; 5; 1; 4] [   7; 3; 0; 5; 5]
+let stick11 = s    [6; 5; 1; 2; 2] [   1; 2; 9; 9; 0]
+
 
 // let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7 |])
 let field = new Field ([| stick0; stick1; stick2; stick3; stick4; stick5; stick6; stick7; stick8; stick9; stick10; stick11 |])

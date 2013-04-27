@@ -1,6 +1,6 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Express 2012 for Web
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Bashni", "Bashni\Bashni.fsproj", "{6EB09F2D-8C20-4283-B282-265121A92FB9}"
 EndProject
 Global
